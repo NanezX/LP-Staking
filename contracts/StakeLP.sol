@@ -12,21 +12,91 @@ import "./interfaces/IERC20.sol";
 import "hardhat/console.sol";
 
 // Factory: 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f
-// WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+// WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" == uniswapRouter.WETH()
 
 contract StakeLP is Initializable{
-    IUniswapV2Router02 uniswapRouter;
-    event AddedLiquidity(address indexed sender, uint liquidityTokens);
+    // Domain
+    uint256 chainId;
+    address verifyingContract;
+    string private EIP712_DOMAIN;
+    bytes32 private EIP712_DOMAIN_TYPEHASH;
+    bytes32 private DOMAIN_SEPARATOR ;
 
-    function initialize(address _router) public initializer {
+    struct Offer {
+        uint256 amount;
+        address wallet;
+    }
+    string private constant OFFER_TYPE = "Offer(uint256 amount,address wallet)";
+    bytes32 private OFFER_TYPEHASH;
+
+    IUniswapV2Router02 uniswapRouter;
+    event LiquidityAdded(
+        address indexed sender,
+        address indexed token, 
+        uint amountLPTokens, 
+        uint time
+    );
+
+    function initialize(address _router, uint _chainId) public initializer {
         uniswapRouter = IUniswapV2Router02(_router);
+        __init_EIP712(_chainId);
+    }
+
+    function __init_EIP712(uint _chainId) public initializer {
+        verifyingContract = address(this);
+        chainId = _chainId;
+        // Domain
+        EIP712_DOMAIN = 
+            "EIP712Domain(string name,uint256 chainId,address verifyingContract)";
+
+        // TYPEHASH
+        EIP712_DOMAIN_TYPEHASH = keccak256(abi.encodePacked(EIP712_DOMAIN));
+        OFFER_TYPEHASH = keccak256(abi.encodePacked(OFFER_TYPE));
+
+        // SEPRATOR
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            EIP712_DOMAIN_TYPEHASH,
+            keccak256("Stake Contract"),
+            chainId,
+            verifyingContract
+        ));
+    }
+
+    function verify(
+        address signer, 
+        Offer memory offer, 
+        bytes32 sigR, 
+        bytes32 sigS, 
+        uint8 sigV
+    ) public view returns (bool) {
+        return signer == ecrecover(_hashOffer(offer), sigV, sigR, sigS);
+    }
+
+    function _hashOffer(Offer memory offer) private view returns (bytes32){
+        return keccak256(abi.encodePacked(
+            "\x19\x01",
+            DOMAIN_SEPARATOR,
+            keccak256(abi.encode(
+                OFFER_TYPEHASH,
+                offer.amount,
+                offer.wallet
+            ))
+        ));
+    }
+
+    function getBalanceLPTokens(address token) public view returns(uint){
+        IUniswapV2Factory factory = IUniswapV2Factory(0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f);
+        address pair = factory.getPair(token, uniswapRouter.WETH());
+        IUniswapV2ERC20 tokenUniswap = IUniswapV2ERC20(pair);
+        return tokenUniswap.balanceOf(msg.sender);
     }
 
     function addLiquidityWithETH(address token) public payable {
         require(msg.value  > 0, "ERROR: Has not been sent ETH");
         uint amountETH = msg.value / 2;
-        uint amount = _swapETHForTokens(token, amountETH);
-        uint lpTokens = _addLiquidity(token, amount, amountETH);
+        uint amountTokens = _swapETHForTokens(token, amountETH);
+        uint lpTokens = _addLiquidity(token, amountTokens, amountETH);
+        emit LiquidityAdded(msg.sender, token, lpTokens, block.timestamp);
     }
     
     function _addLiquidity (address token, uint amounToken, uint amountETH) internal returns(uint) {
@@ -35,8 +105,8 @@ contract StakeLP is Initializable{
 
         (, , uint liquidity) = uniswapRouter.addLiquidityETH{value:  amountETH}(
             token, amounToken, 
-            (amounToken * 9070) / 10000, // 0.3% slip
-            (amountETH * 9070) / 10000, 
+            (amounToken * 9970) / 10000, // 9970 = 99.7% (0.3% slip)
+            (amountETH * 9970) / 10000, 
             msg.sender, 
             block.timestamp + 3600
         );
@@ -44,28 +114,21 @@ contract StakeLP is Initializable{
     }
 
     function stakeLPTokens (address token) public payable {
-        require(msg.value > 0, "Has been not send any ether");
-
+        
     }
 
     function addLiquidityAndStake () public payable {
         
     }
 
-
     function _swapETHForTokens (
-        address AddressesTokensOut, // Token addresses that are requested 
+        address AddressesTokensOut,
         uint amountETH
     ) internal returns(uint){
-
-            // IUniswapV2Router02 uniswapRouter = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
-
-            // Create the path between weth (ether) and the token
             address[] memory path = new address[](2); 
             path[0] = uniswapRouter.WETH(); 
             path[1] = AddressesTokensOut;
 
-            // make the exchange
             uint[] memory amounts = uniswapRouter.swapExactETHForTokens{value:  amountETH}(
                     1,
                     path, 
@@ -73,9 +136,6 @@ contract StakeLP is Initializable{
                     block.timestamp + 3600
             ); 
             return amounts[1];
-            
-            // recipient.call{value: fee}(""); // transfer fee to my recipient 
-            // msg.sender.call{ value: address(this).balance }(""); // refund the rest of ether
     }
 //     uniswapRouter.swapETHForExactTokens{value:  amountETH}(
 //         1000000000000000000,
