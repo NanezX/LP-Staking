@@ -52,7 +52,7 @@ describe("Stake Contract", ()=>{
 
         expect(LPTokensObtained).to.be.equal(balance);
     });
-    it("Signatures verify", async ()=>{
+    it("Should return true the signature verification", async ()=>{
          const domain = {
             name: 'Stake Contract',
             chainId: (await ethers.provider.getNetwork()).chainId,
@@ -77,14 +77,14 @@ describe("Stake Contract", ()=>{
         const r = "0x" + signature.substring(0, 64);
         const s = "0x" + signature.substring(64, 128);
         const v = parseInt(signature.substring(128, 130), 16);
-        let aver = await stakeI.verify(
+        let isVerify = await stakeI.verify(
             await account1.getAddress(),
             value,
             r,
             s,
             v
         );
-        console.log(aver);
+        expect(isVerify).to.be.true;
     });
 });
 
