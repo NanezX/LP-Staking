@@ -30,6 +30,7 @@ contract StakeLP is Initializable{
     bytes32 private OFFER_TYPEHASH;
 
     IUniswapV2Router02 uniswapRouter;
+    IUniswapV2Factory uniswapFactory;
     event LiquidityAdded(
         address indexed sender,
         address indexed token, 
@@ -37,12 +38,14 @@ contract StakeLP is Initializable{
         uint time
     );
 
-    function initialize(address _router, uint _chainId) public initializer {
+    function initialize(address _router, address _factory, uint _chainId) public initializer {
         uniswapRouter = IUniswapV2Router02(_router);
-        __init_EIP712(_chainId);
+        uniswapFactory = IUniswapV2Factory(_factory);
+        _init_EIP712(_chainId);
     }
 
-    function __init_EIP712(uint _chainId) public initializer {
+
+    function _init_EIP712(uint _chainId) internal initializer {
         verifyingContract = address(this);
         chainId = _chainId;
         // Domain
@@ -62,13 +65,40 @@ contract StakeLP is Initializable{
         ));
     }
 
+    function verifyUni (
+        address token,
+        address signer,
+        uint deadline,
+        bytes32 r, 
+        bytes32 s, 
+        uint8 v
+     ) public view returns(bool) {
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                '\x19\x01',
+                IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH())).DOMAIN_SEPARATOR(),
+                keccak256(
+                    abi.encode(
+                        IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH())).PERMIT_TYPEHASH(),
+                        signer,
+                        address(this),
+                        IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH())).balanceOf(signer),
+                        uint256(IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH())).nonces(signer)),
+                        deadline
+                    )
+                )
+            )
+        );
+        return signer == ecrecover(digest, v, r, s);
+    }
+
     function verify(
         address signer, 
         Offer memory offer, 
         bytes32 sigR, 
         bytes32 sigS, 
         uint8 sigV
-    ) public view returns (bool) {
+     ) public view returns (bool) {
         return signer == ecrecover(_hashOffer(offer), sigV, sigR, sigS);
     }
 
@@ -85,8 +115,7 @@ contract StakeLP is Initializable{
     }
 
     function getBalanceLPTokens(address token) public view returns(uint){
-        IUniswapV2Factory factory = IUniswapV2Factory(0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f);
-        address pair = factory.getPair(token, uniswapRouter.WETH());
+        address pair = uniswapFactory.getPair(token, uniswapRouter.WETH());
         IUniswapV2ERC20 tokenUniswap = IUniswapV2ERC20(pair);
         return tokenUniswap.balanceOf(msg.sender);
     }
@@ -113,8 +142,26 @@ contract StakeLP is Initializable{
         return liquidity;
     }
 
-    function stakeLPTokens (address token) public payable {
-        
+    function stakeLPTokens (
+        address token,
+        address owner,
+        uint value,
+        uint deadline,
+        uint8 v, 
+        bytes32 r, 
+        bytes32 s
+     ) public payable {
+        address pair = uniswapFactory.getPair(token, uniswapRouter.WETH());
+        IUniswapV2ERC20 tokenUniswap = IUniswapV2ERC20(pair);
+        tokenUniswap.permit(
+            owner, 
+            address(this), 
+            value, 
+            block.timestamp + deadline, 
+            v, 
+            r, 
+            s
+        );
     }
 
     function addLiquidityAndStake () public payable {
@@ -124,11 +171,10 @@ contract StakeLP is Initializable{
     function _swapETHForTokens (
         address AddressesTokensOut,
         uint amountETH
-    ) internal returns(uint){
+     ) internal returns(uint){
             address[] memory path = new address[](2); 
             path[0] = uniswapRouter.WETH(); 
             path[1] = AddressesTokensOut;
-
             uint[] memory amounts = uniswapRouter.swapExactETHForTokens{value:  amountETH}(
                     1,
                     path, 
@@ -137,16 +183,6 @@ contract StakeLP is Initializable{
             ); 
             return amounts[1];
     }
-//     uniswapRouter.swapETHForExactTokens{value:  amountETH}(
-//         1000000000000000000,
-//         path,
-//         msg.sender,
-//         block.timestamp + 3600
-//     );
-// function swapETHForExactTokens(uint amountOut, address[] calldata path, address to, uint deadline)
-//   external
-//   payable
-//   returns (uint[] memory amounts);
     
     receive() payable external {} // Only receive the leftover ether
 }

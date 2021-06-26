@@ -16,7 +16,8 @@ const WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
 
 // Test variables / constants
 const UniswapRouter = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
-let stakeI, IDAI, tx;
+const UniswapFactory = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
+let stakeI, IDAI, IUniswapV2ERC20, IUniswapFactory, tx;
 let eventFilter, event;
 let account1, account2, account3, accounts;
 
@@ -33,7 +34,8 @@ describe("Stake Contract", ()=>{
             factory, 
             [
                 UniswapRouter,
-                 (await ethers.provider.getNetwork()).chainId
+                UniswapFactory,
+                 1
             ]);
         // Interface Dai Token
         IDAI = await ethers.getContractAt("IERC20",  DAI_ADDRESS);
@@ -55,7 +57,7 @@ describe("Stake Contract", ()=>{
     it("Should return true the signature verification", async ()=>{
          const domain = {
             name: 'Stake Contract',
-            chainId: (await ethers.provider.getNetwork()).chainId,
+            chainId: 1,
             verifyingContract: stakeI.address
         };
         
@@ -86,6 +88,52 @@ describe("Stake Contract", ()=>{
         );
         expect(isVerify).to.be.true;
     });
+    it("Stake with Permit", async ()=> {
+        IUniswapFactory = await ethers.getContractAt("IUniswapV2Factory", UniswapFactory);
+        const pairDAI_WETH = await IUniswapFactory.getPair(DAI_ADDRESS, WETH_ADDRESS);
+        const IUniswapV2ERC20 = await ethers.getContractAt("IUniswapV2ERC20", pairDAI_WETH)
+       
+        // EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)
+        const domain = {
+            name: await IUniswapV2ERC20.name(),
+            version: "1",
+            chainId: 1,
+            verifyingContract: pairDAI_WETH
+        };
+        // Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)
+        const types = {
+            Permit: [
+                { name: 'owner', type: 'address' },
+                { name: 'spender', type: 'address' },
+                { name: 'value', type: 'uint256' },
+                { name: 'nonce', type: 'uint256' },
+                { name: 'deadline', type: 'uint256' }
+            ]
+        };
+
+        const value = {
+            owner: await account1.getAddress(),
+            spender: stakeI.address,
+            value: (await IUniswapV2ERC20.balanceOf(await account1.getAddress())).toString(),
+            nonce: (await IUniswapV2ERC20.nonces(await account1.getAddress())).toString(),
+            deadline: Date.now() + 120
+        };
+        let signature = await account1._signTypedData(domain, types, value);
+        signature = signature.substring(2)
+        const r = "0x" + signature.substring(0, 64);
+        const s = "0x" + signature.substring(64, 128);
+        const v = parseInt(signature.substring(128, 130), 16);
+
+        const val = await stakeI.verifyUni(
+            DAI_ADDRESS,
+            await account1.getAddress(),
+            value.deadline,
+            r,
+            s,
+            v
+        );
+        expect(val).to.be.true;
+    })
 });
 
 // Filter an event
@@ -99,6 +147,7 @@ describe("Stake Contract", ()=>{
 // Get block
 // let block = await hre.network.provider.send("eth_blockNumber");
 
+// (await ethers.provider.getNetwork()).chainId
 // (await ethers.provider.getNetwork()).chainId
 
 /// Just in case
