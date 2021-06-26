@@ -34,8 +34,7 @@ describe("Stake Contract", ()=>{
             factory, 
             [
                 UniswapRouter,
-                UniswapFactory,
-                 1
+                UniswapFactory
             ]);
         // Interface Dai Token
         IDAI = await ethers.getContractAt("IERC20",  DAI_ADDRESS);
@@ -53,40 +52,6 @@ describe("Stake Contract", ()=>{
         const balance = await stakeI.getBalanceLPTokens(DAI_ADDRESS);
 
         expect(LPTokensObtained).to.be.equal(balance);
-    });
-    it("Should return true the signature verification", async ()=>{
-         const domain = {
-            name: 'Stake Contract',
-            chainId: 1,
-            verifyingContract: stakeI.address
-        };
-        
-        const types = {
-            Offer: [
-                { name: 'amount', type: 'uint256' },
-                { name: 'wallet', type: 'address' }
-            ]
-        };
-        
-        // The data to sign
-        const value = {
-            amount: '100',
-            wallet: await account1.getAddress()
-        };
-        
-        let signature = await account1._signTypedData(domain, types, value);
-        signature = signature.substring(2)
-        const r = "0x" + signature.substring(0, 64);
-        const s = "0x" + signature.substring(64, 128);
-        const v = parseInt(signature.substring(128, 130), 16);
-        let isVerify = await stakeI.verify(
-            await account1.getAddress(),
-            value,
-            r,
-            s,
-            v
-        );
-        expect(isVerify).to.be.true;
     });
     it("Stake with Permit", async ()=> {
         IUniswapFactory = await ethers.getContractAt("IUniswapV2Factory", UniswapFactory);
@@ -151,7 +116,3 @@ describe("Stake Contract", ()=>{
 // let block = await hre.network.provider.send("eth_blockNumber");
 
 // (await ethers.provider.getNetwork()).chainId
-// (await ethers.provider.getNetwork()).chainId
-
-/// Just in case
-// https://github.com/0xsequence/ethers-eip712

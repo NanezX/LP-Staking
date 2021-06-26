@@ -15,20 +15,6 @@ import "hardhat/console.sol";
 // WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" == uniswapRouter.WETH()
 
 contract StakeLP is Initializable{
-    // Domain
-    uint256 chainId;
-    address verifyingContract;
-    string private EIP712_DOMAIN;
-    bytes32 private EIP712_DOMAIN_TYPEHASH;
-    bytes32 private DOMAIN_SEPARATOR ;
-
-    struct Offer {
-        uint256 amount;
-        address wallet;
-    }
-    string private constant OFFER_TYPE = "Offer(uint256 amount,address wallet)";
-    bytes32 private OFFER_TYPEHASH;
-
     IUniswapV2Router02 uniswapRouter;
     IUniswapV2Factory uniswapFactory;
     event LiquidityAdded(
@@ -38,32 +24,11 @@ contract StakeLP is Initializable{
         uint time
     );
 
-    function initialize(address _router, address _factory, uint _chainId) public initializer {
+    function initialize(address _router, address _factory) public initializer {
         uniswapRouter = IUniswapV2Router02(_router);
         uniswapFactory = IUniswapV2Factory(_factory);
-        _init_EIP712(_chainId);
     }
 
-
-    function _init_EIP712(uint _chainId) internal initializer {
-        verifyingContract = address(this);
-        chainId = _chainId;
-        // Domain
-        EIP712_DOMAIN = 
-            "EIP712Domain(string name,uint256 chainId,address verifyingContract)";
-
-        // TYPEHASH
-        EIP712_DOMAIN_TYPEHASH = keccak256(abi.encodePacked(EIP712_DOMAIN));
-        OFFER_TYPEHASH = keccak256(abi.encodePacked(OFFER_TYPE));
-
-        // SEPRATOR
-        DOMAIN_SEPARATOR = keccak256(abi.encode(
-            EIP712_DOMAIN_TYPEHASH,
-            keccak256("Stake Contract"),
-            chainId,
-            verifyingContract
-        ));
-    }
 
     function permitToken(
         address token,
@@ -85,57 +50,6 @@ contract StakeLP is Initializable{
              s
         );
      }
-
-    function verifyUni (
-        address token,
-        address signer,
-        uint deadline,
-        bytes32 r, 
-        bytes32 s, 
-        uint8 v
-     ) public view returns(bool) {
-        IUniswapV2ERC20 tokenUniswap = 
-            IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH()));
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                '\x19\x01',
-                tokenUniswap.DOMAIN_SEPARATOR(),
-                keccak256(
-                    abi.encode(
-                        tokenUniswap.PERMIT_TYPEHASH(),
-                        signer,
-                        address(this),
-                        tokenUniswap.balanceOf(signer),
-                        uint256(tokenUniswap.nonces(signer)),
-                        deadline
-                    )
-                )
-            )
-        );
-        return signer == ecrecover(digest, v, r, s);
-    }
-
-    function verify(
-        address signer, 
-        Offer memory offer, 
-        bytes32 sigR, 
-        bytes32 sigS, 
-        uint8 sigV
-     ) public view returns (bool) {
-        return signer == ecrecover(_hashOffer(offer), sigV, sigR, sigS);
-    }
-
-    function _hashOffer(Offer memory offer) private view returns (bytes32){
-        return keccak256(abi.encodePacked(
-            "\x19\x01",
-            DOMAIN_SEPARATOR,
-            keccak256(abi.encode(
-                OFFER_TYPEHASH,
-                offer.amount,
-                offer.wallet
-            ))
-        ));
-    }
 
     function getBalanceLPTokens(address token) public view returns(uint){
         address pair = uniswapFactory.getPair(token, uniswapRouter.WETH());
