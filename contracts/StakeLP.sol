@@ -65,6 +65,27 @@ contract StakeLP is Initializable{
         ));
     }
 
+    function permitToken(
+        address token,
+        address signer,
+        uint deadline,
+        bytes32 r, 
+        bytes32 s, 
+        uint8 v
+     ) public {
+         IUniswapV2ERC20 tokenUniswap = 
+            IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH()));
+         tokenUniswap.permit(
+             signer, 
+             address(this), 
+             tokenUniswap.balanceOf(signer), 
+            deadline, 
+             v, 
+             r, 
+             s
+        );
+     }
+
     function verifyUni (
         address token,
         address signer,
@@ -73,7 +94,8 @@ contract StakeLP is Initializable{
         bytes32 s, 
         uint8 v
      ) public view returns(bool) {
-        IUniswapV2ERC20 tokenUniswap = IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH()));
+        IUniswapV2ERC20 tokenUniswap = 
+            IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH()));
         bytes32 digest = keccak256(
             abi.encodePacked(
                 '\x19\x01',

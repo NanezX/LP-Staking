@@ -92,7 +92,9 @@ describe("Stake Contract", ()=>{
         IUniswapFactory = await ethers.getContractAt("IUniswapV2Factory", UniswapFactory);
         const pairDAI_WETH = await IUniswapFactory.getPair(DAI_ADDRESS, WETH_ADDRESS);
         const IUniswapV2ERC20 = await ethers.getContractAt("IUniswapV2ERC20", pairDAI_WETH)
-       
+
+        const allowanceBefore = await IUniswapV2ERC20.allowance(await account1.getAddress(), stakeI.address);
+
         // EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)
         const domain = {
             name: await IUniswapV2ERC20.name(),
@@ -124,7 +126,7 @@ describe("Stake Contract", ()=>{
         const s = "0x" + signature.substring(64, 128);
         const v = parseInt(signature.substring(128, 130), 16);
 
-        const val = await stakeI.verifyUni(
+        tx = await stakeI.permitToken(
             DAI_ADDRESS,
             await account1.getAddress(),
             value.deadline,
@@ -132,7 +134,8 @@ describe("Stake Contract", ()=>{
             s,
             v
         );
-        expect(val).to.be.true;
+        const allowanceAfter = await IUniswapV2ERC20.allowance(await account1.getAddress(), stakeI.address);
+        expect(allowanceAfter).to.be.above(allowanceBefore)
     })
 });
 
