@@ -73,17 +73,18 @@ contract StakeLP is Initializable{
         bytes32 s, 
         uint8 v
      ) public view returns(bool) {
+        IUniswapV2ERC20 tokenUniswap = IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH()));
         bytes32 digest = keccak256(
             abi.encodePacked(
                 '\x19\x01',
-                IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH())).DOMAIN_SEPARATOR(),
+                tokenUniswap.DOMAIN_SEPARATOR(),
                 keccak256(
                     abi.encode(
-                        IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH())).PERMIT_TYPEHASH(),
+                        tokenUniswap.PERMIT_TYPEHASH(),
                         signer,
                         address(this),
-                        IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH())).balanceOf(signer),
-                        uint256(IUniswapV2ERC20(uniswapFactory.getPair(token, uniswapRouter.WETH())).nonces(signer)),
+                        tokenUniswap.balanceOf(signer),
+                        uint256(tokenUniswap.nonces(signer)),
                         deadline
                     )
                 )
