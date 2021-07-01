@@ -2,21 +2,17 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2ERC20.sol";
 
+
+import "./interfaces/IERC20Upgradeable.sol";
 import "./StakeToken.sol";
 
-import "./interfaces/IERC20.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
-
-import "hardhat/console.sol";
-
-// Factory: 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f
-// WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" == uniswapRouter.WETH()
-
 contract StakeLP is Initializable, StakeToken{
+    using SafeERC20Upgradeable for IERC20Upgradeable;
     IUniswapV2Router02 uniswapRouter;
     IUniswapV2Factory uniswapFactory;
     event LiquidityAdded(
@@ -28,7 +24,8 @@ contract StakeLP is Initializable, StakeToken{
     event StakeAdded(
         address indexed owner,
         address indexed LPToken, 
-        uint amountLPTokens
+        uint amountLPTokens,
+        uint time
     );
 
     function initialize(
@@ -39,13 +36,11 @@ contract StakeLP is Initializable, StakeToken{
      ) public initializer {
         uniswapRouter = IUniswapV2Router02(_router);
         uniswapFactory = IUniswapV2Factory(_factory);
-        __ERC20_init(_name, _symbol);
-        __Ownable_init();
+        __init_StakeToken(_name, _symbol);
     }
 
 
-
-    function getBalanceLPTokens(address token) public view returns(uint){
+    function getBalanceLPTokens(address token) external view returns(uint){
         address pair = uniswapFactory.getPair(token, uniswapRouter.WETH());
         IUniswapV2ERC20 tokenUniswap = IUniswapV2ERC20(pair);
         return tokenUniswap.balanceOf(msg.sender);
@@ -73,23 +68,31 @@ contract StakeLP is Initializable, StakeToken{
         uint lpTokens = _addLiquidity(token, amountTokens, amountETH);
         
         address addressPair = uniswapFactory.getPair(token, uniswapRouter.WETH());
-        _addStake(addressPair, lpTokens);
+        _addStake(
+            addressPair, 
+            lpTokens, 
+            IUniswapV2ERC20(addressPair).decimals()
+        );
         emit LiquidityAdded(msg.sender, token, lpTokens, block.timestamp);
-        emit StakeAdded(msg.sender, addressPair, lpTokens);
+        emit StakeAdded(msg.sender, addressPair, lpTokens, block.timestamp);
     }
 
     function addStake(
         address LPToken, 
         uint amount
-     ) public {
+     ) external {
         IUniswapV2ERC20 tokenUniswap = IUniswapV2ERC20(LPToken);
         uint allowanceActual = tokenUniswap.allowance(msg.sender, address(this));
-        require(allowanceActual >= amount, "ERROR: Not enough tokens to stake");
+        require(
+            allowanceActual >= amount,
+            "ERROR: Not enough tokens to stake"
+        );
 
-        bool success = tokenUniswap.transferFrom(msg.sender, address(this),amount);
+        bool success = 
+            tokenUniswap.transferFrom(msg.sender, address(this), amount);
         require(success, "ERORR: Fail transfer tokens");
-        _addStake(LPToken, amount);
-        emit StakeAdded(msg.sender, LPToken, amount);
+        _addStake(LPToken, amount, tokenUniswap.decimals());
+        emit StakeAdded(msg.sender, LPToken, amount, block.timestamp);
     }
 
     function addStakeWithPermit(
@@ -105,8 +108,12 @@ contract StakeLP is Initializable, StakeToken{
 
         bool success = tokenUniswap.transferFrom(msg.sender, address(this), amount);
         require(success, "ERROR: Fail when transfer token");
-        _addStake(tokenLP, amount);
-        emit StakeAdded(msg.sender, tokenLP, amount);
+        _addStake(tokenLP, amount, tokenUniswap.decimals());
+        emit StakeAdded(msg.sender, tokenLP, amount, block.timestamp);
+    }
+
+    function claimStake(address LPToken) external {
+         _getReward(LPToken);
     }
 
     function _swapETHForTokens (
@@ -130,8 +137,9 @@ contract StakeLP is Initializable, StakeToken{
         uint amounToken, 
         uint amountETH
      ) internal returns(uint) {
-        IERC20 Itoken = IERC20(token);
-        Itoken.approve(address(uniswapRouter), amounToken);
+        IERC20Upgradeable Itoken = IERC20Upgradeable(token);
+        SafeERC20Upgradeable.safeIncreaseAllowance(Itoken, address(uniswapRouter),  amounToken);
+        // Itoken.approve(address(uniswapRouter), amounToken);
         (, , uint liquidity) = uniswapRouter.addLiquidityETH{value:  amountETH}(
             token, amounToken, 
             (amounToken * 9970) / 10000, // 9970 = 99.7% (0.3% slip)

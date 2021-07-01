@@ -40,30 +40,37 @@ describe("Stake Contract", ()=>{
                 "STK"
             ]);
         // Interface Dai Token
-        IDAI = await ethers.getContractAt("IERC20",  DAI_ADDRESS);
+        IDAI = await ethers.getContractAt("IERC20Upgradeable",  DAI_ADDRESS);
 
     });
-    xit("USDT", async ()=>{
-        IUSDT = await ethers.getContractAt("IERC20",  USDT_ADDRESS);
+    it("Should add liquidity with ether at USDT-WETH pair", async ()=>{
+        IUSDT = await ethers.getContractAt("IERC20Upgradeable",  USDT_ADDRESS);
         // Impersonating account that have a lot of USDT tokens and sending it some ether
         await hre.network.provider.request({
             method: "hardhat_impersonateAccount",
             params: [USDT_OWNER]
         });
         ownerUSDT = await ethers.provider.getSigner(USDT_OWNER);
-
         await account2.sendTransaction({
             to: USDT_OWNER,
             value: ethers.utils.parseEther('5.0'),
         });
-        console.log("Balance owner: ", (await IUSDT.balanceOf(USDT_OWNER)).toString())
-        tx = await IUSDT.transfer(stakeI.address, 10000000);
-        console.log("Balance owner: ", (await IUSDT.balanceOf(USDT_OWNER)).toString())
-        console.log("Balance contract: ", (await IUSDT.balanceOf(stakeI.address)).toString())
+
+        tx = await stakeI.connect(ownerUSDT).addLiquidityWithETH(
+            USDT_ADDRESS,
+            {value:ethers.utils.parseEther("1")}
+        );
+        tx = await tx.wait();
+
+        eventFilter = await stakeI.filters.LiquidityAdded(); 
+        event = await stakeI.queryFilter(eventFilter, "latest");
+        const LPTokensObtained = event[0].args.amountLPTokens.toString();
+        const balance = await stakeI.connect(ownerUSDT).getBalanceLPTokens(USDT_ADDRESS);
+        expect(LPTokensObtained).to.be.equal(balance);
 
 
     });
-    it("Should add liquidity with DAI", async ()=>{
+    it("Should add liquidity with ether at DAI-WETH pair", async ()=>{
         tx = await stakeI.addLiquidityWithETH(
             DAI_ADDRESS,
             {value:ethers.utils.parseEther("1")}
@@ -76,27 +83,29 @@ describe("Stake Contract", ()=>{
         const balance = await stakeI.getBalanceLPTokens(DAI_ADDRESS);
         expect(LPTokensObtained).to.be.equal(balance);
     });
-    it("Should add liquidity with USDC", async ()=>{
-        tx = await stakeI.addLiquidityWithETH(
-            USDC_ADDRESS,
-            {value:ethers.utils.parseEther("1")}
-        );
-        tx = await tx.wait();
+    it("Should stake existing LP tokens USDT-WETH Pair", async ()=> {
+        IUniswapFactory = await ethers.getContractAt("IUniswapV2Factory", UniswapFactory);
+        const pairUSDT_WETH = await IUniswapFactory.getPair(USDT_ADDRESS, WETH_ADDRESS);
+        const IUniswapV2ERC20 = await ethers.getContractAt("IUniswapV2ERC20", pairUSDT_WETH);
 
-        eventFilter = await stakeI.filters.LiquidityAdded(); 
+        let balance = await IUniswapV2ERC20.balanceOf(await ownerUSDT.getAddress());
+        tx = await IUniswapV2ERC20.connect(ownerUSDT).approve(stakeI.address, balance);
+        tx = await stakeI.connect(ownerUSDT).addStake(pairUSDT_WETH, balance);
+
+        eventFilter = await stakeI.filters.StakeAdded(); 
         event = await stakeI.queryFilter(eventFilter, "latest");
-        const LPTokensObtained = event[0].args.amountLPTokens.toString()
-        const balance = await stakeI.getBalanceLPTokens(USDC_ADDRESS);
-        expect(LPTokensObtained).to.be.equal(balance);
+        const LPTokensStaked = event[0].args.amountLPTokens.toString()
+
+        const stake = await stakeI.connect(ownerUSDT).stakeOf(pairUSDT_WETH);
+        expect(stake).to.be.equal(LPTokensStaked);
     });
-    xit("Stake with Permit", async ()=> {
+    it("Should stake existing LP tokens DAI-WETH Pair with Permit", async ()=> {
         IUniswapFactory = await ethers.getContractAt("IUniswapV2Factory", UniswapFactory);
         const pairDAI_WETH = await IUniswapFactory.getPair(DAI_ADDRESS, WETH_ADDRESS);
-        const IUniswapV2ERC20 = await ethers.getContractAt("IUniswapV2ERC20", pairDAI_WETH)
+        const IUniswapV2ERC20 = await ethers.getContractAt("IUniswapV2ERC20", pairDAI_WETH);
 
-        const allowanceBefore = await IUniswapV2ERC20.allowance(await account1.getAddress(), stakeI.address);
+        let balance = await IUniswapV2ERC20.balanceOf(await account1.getAddress());
 
-        // EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)
         const domain = {
             name: await IUniswapV2ERC20.name(),
             version: "1",
@@ -117,7 +126,7 @@ describe("Stake Contract", ()=>{
         const value = {
             owner: await account1.getAddress(),
             spender: stakeI.address,
-            value: (await IUniswapV2ERC20.balanceOf(await account1.getAddress())).toString(),
+            value: balance,
             nonce: (await IUniswapV2ERC20.nonces(await account1.getAddress())).toString(),
             deadline: Date.now() + 120
         };
@@ -127,17 +136,39 @@ describe("Stake Contract", ()=>{
         const s = "0x" + signature.substring(64, 128);
         const v = parseInt(signature.substring(128, 130), 16);
 
-        tx = await stakeI.permitToken(
-            DAI_ADDRESS,
-            await account1.getAddress(),
+        tx = await stakeI.addStakeWithPermit(
+            pairDAI_WETH,
+            balance,
             value.deadline,
             r,
             s,
             v
         );
-        const allowanceAfter = await IUniswapV2ERC20.allowance(await account1.getAddress(), stakeI.address);
-        expect(allowanceAfter).to.be.above(allowanceBefore)
-    })
+
+        eventFilter = await stakeI.filters.StakeAdded(); 
+        event = await stakeI.queryFilter(eventFilter, "latest");
+        const LPTokensStaked = event[0].args.amountLPTokens.toString()
+
+        const stake = await stakeI.stakeOf(pairDAI_WETH);
+        expect(stake).to.be.equal(LPTokensStaked);
+    });
+    it("Should add liquidity with ether at USDC-WETH pair and stake the LP tokens ", async ()=>{
+        tx = await stakeI.addLiquidityAndStake(
+            USDC_ADDRESS,
+            {value:ethers.utils.parseEther("1")}
+        );
+        tx = await tx.wait();
+
+        eventFilter = await stakeI.filters.StakeAdded(); 
+        event = await stakeI.queryFilter(eventFilter, "latest");
+        const LPTokensStaked = event[0].args.amountLPTokens.toString()
+
+        IUniswapFactory = await ethers.getContractAt("IUniswapV2Factory", UniswapFactory);
+        const pairUSDC_WETH = await IUniswapFactory.getPair(USDC_ADDRESS, WETH_ADDRESS);
+
+        const stake = await stakeI.stakeOf(pairUSDC_WETH);
+        expect(stake).to.be.equal(LPTokensStaked);
+    });
 });
 
 // Filter an event
@@ -150,5 +181,3 @@ describe("Stake Contract", ()=>{
 
 // Get block
 // let block = await hre.network.provider.send("eth_blockNumber");
-
-// (await ethers.provider.getNetwork()).chainId
